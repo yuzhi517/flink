@@ -84,7 +84,7 @@ function makeCode() {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   const group = (n) =>
     Array.from({ length: n }, () => alphabet[crypto.randomInt(alphabet.length)]).join("");
-  return `FL-${group(4)}-${group(4)}-${group(4)}`;
+  return `YL-${group(4)}-${group(4)}-${group(4)}`;
 }
 
 function encrypt(code, value) {
@@ -115,6 +115,6 @@ for (let i = 1; i <= 5; i += 1) {
 }
 
 fs.writeFileSync(path.join(ROOT, "profiles.json"), JSON.stringify(profiles, null, 2));
-fs.writeFileSync(path.join(ROOT, "codes.local.txt"), `${codes.join("\n")}\n`, { mode: 0o600 });
+fs.writeFileSync(path.join(ROOT, "..", "yulink-codes.txt"), `${codes.join("\n")}\n`, { mode: 0o600 });
 console.log(`Wrote ${Object.keys(profiles).length} encrypted profiles.`);
 console.log(codes.map((line) => line.split("\t")[0]).join(", "));

@@ -3,4 +3,5 @@ dist/
 dist-win/
 android/
 *.log
-familylink-codes.txt
+yulink-codes.txt
+codes.local.txt

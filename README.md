@@ -1,4 +1,4 @@
-# FamilyLink
+# YuLink
 
 家庭内部使用的 macOS / Windows 桌面客户端。
 
@@ -14,7 +14,7 @@ npm install
 npm start
 ```
 
-首次进入输入家庭码。家庭码保存在仓库外的 `../familylink-codes.txt`，不会打进应用。
+首次进入输入家庭码。家庭码保存在仓库外的 `../yulink-codes.txt`，不会打进应用。
 
 ## 打包
 
@@ -31,7 +31,7 @@ npm run package:win
 ## 通过 GitHub 更新
 
 1. 在 GitHub 建一个公开仓库，把本目录推上去。
-2. 修改 `update-config.json`，把 `YOUR_GITHUB_USER/familylink` 换成你的仓库。
+2. 修改 `update-config.json`，把 `YOUR_GITHUB_USER/yulink` 换成你的仓库。
 3. 打 tag 并推送：
 
 ```bash
@@ -43,8 +43,8 @@ GitHub Actions 会构建 macOS 和 Windows 包并生成 Release。App 里的“�
 
 当前是“检查 + 手动替换”，不是自动覆盖安装。原因是 macOS/Windows 包没有签名，自动替换容易被系统拦截，也更危险。更新时：
 
-- macOS：退出 App，替换 `Applications/FamilyLink.app`
-- Windows：退出 App，替换整个 `FamilyLink` 文件夹
+- macOS：退出 App，替换 `Applications/YuLink.app`
+- Windows：退出 App，替换整个 `YuLink` 文件夹
 
 ## 核心
 
