@@ -509,15 +509,118 @@ ipcMain.handle("check-update", async () => {
     const asset = (release.assets || []).find((item) =>
       String(item.name || "").includes(platformName),
     );
+    const checksums = (release.assets || []).find((item) => item.name === "checksums.txt");
     return {
       ok: true,
       current,
       latest,
       available: isNewerVersion(latest, current),
       url: release.html_url,
+      assetName: asset?.name || "",
       downloadUrl: asset?.browser_download_url || release.html_url,
+      checksumsUrl: checksums?.browser_download_url || "",
       notes: String(release.body || "").slice(0, 1200),
     };
+  } catch (error) {
+    return { ok: false, error: String(error?.message || error) };
+  }
+});
+
+async function downloadToFile(url, destination) {
+  const response = await fetch(url, {
+    headers: { "User-Agent": "Flink-Updater" },
+    redirect: "follow",
+  });
+  if (!response.ok) throw new Error(`下载失败：HTTP ${response.status}`);
+  const buffer = Buffer.from(await response.arrayBuffer());
+  fs.writeFileSync(destination, buffer);
+  return buffer;
+}
+
+async function verifyChecksum(checksumsUrl, assetName, filePath) {
+  if (!checksumsUrl) throw new Error("Release 没有 checksums.txt，拒绝自动安装");
+  const response = await fetch(checksumsUrl, {
+    headers: { "User-Agent": "Flink-Updater" },
+    redirect: "follow",
+  });
+  if (!response.ok) throw new Error(`校验文件下载失败：HTTP ${response.status}`);
+  const text = await response.text();
+  const line = text
+    .split(/\r?\n/)
+    .map((item) => item.trim())
+    .find((item) => item.endsWith(assetName));
+  if (!line) throw new Error("校验文件中找不到当前安装包");
+  const expected = line.split(/\s+/)[0].toLowerCase();
+  const actual = crypto.createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
+  if (actual !== expected) throw new Error(`SHA256 校验失败\n期望 ${expected}\n实际 ${actual}`);
+}
+
+ipcMain.handle("install-update", async (_event, payload) => {
+  if (process.platform !== "win32") {
+    return { ok: false, error: "当前系统不支持一键安装更新" };
+  }
+  try {
+    const { downloadUrl, checksumsUrl, assetName } = payload || {};
+    if (!downloadUrl || !assetName) throw new Error("更新信息不完整");
+    const stamp = Date.now();
+    const tempRoot = path.join(app.getPath("temp"), `flink-update-${stamp}`);
+    const zipPath = path.join(tempRoot, "update.zip");
+    const extractDir = path.join(tempRoot, "extract");
+    fs.mkdirSync(extractDir, { recursive: true });
+
+    await downloadToFile(downloadUrl, zipPath);
+    await verifyChecksum(checksumsUrl, assetName, zipPath);
+
+    await run("powershell.exe", [
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      `Expand-Archive -LiteralPath '${powershellQuote(zipPath)}' -DestinationPath '${powershellQuote(extractDir)}' -Force`,
+    ]);
+
+    let newRoot = extractDir;
+    if (!fs.existsSync(path.join(newRoot, "Flink.exe"))) {
+      const nested = fs
+        .readdirSync(extractDir, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => path.join(extractDir, entry.name))
+        .find((entry) => fs.existsSync(path.join(entry, "Flink.exe")));
+      if (nested) newRoot = nested;
+    }
+    if (!fs.existsSync(path.join(newRoot, "Flink.exe"))) {
+      throw new Error("更新包中找不到 Flink.exe");
+    }
+
+    const appDir = path.dirname(process.execPath);
+    const scriptPath = path.join(tempRoot, "install-update.ps1");
+    const script = [
+      "param([string]$AppDir,[string]$NewDir,[int]$AppPid)",
+      "Wait-Process -Id $AppPid -ErrorAction SilentlyContinue",
+      "$backup = \"${AppDir}.old-$(Get-Date -Format yyyyMMddHHmmss)\"",
+      "try {",
+      "  if (Test-Path -LiteralPath $backup) { Remove-Item -LiteralPath $backup -Recurse -Force }",
+      "  Move-Item -LiteralPath $AppDir -Destination $backup -Force",
+      "  Move-Item -LiteralPath $NewDir -Destination $AppDir -Force",
+      "  Start-Process -FilePath (Join-Path $AppDir 'Flink.exe')",
+      "} catch {",
+      "  if (Test-Path -LiteralPath $backup) {",
+      "    if (Test-Path -LiteralPath $AppDir) { Remove-Item -LiteralPath $AppDir -Recurse -Force }",
+      "    Move-Item -LiteralPath $backup -Destination $AppDir -Force",
+      "  }",
+      "  throw",
+      "}",
+      "",
+    ].join("\r\n");
+    fs.writeFileSync(scriptPath, script, { encoding: "utf8" });
+
+    const ps = [
+      "Start-Process -FilePath 'powershell.exe'",
+      `-ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File','${powershellQuote(scriptPath)}','-AppDir','${powershellQuote(appDir)}','-NewDir','${powershellQuote(newRoot)}','-AppPid','${process.pid}')`,
+      "-Verb RunAs -WindowStyle Hidden",
+    ].join(" ");
+    await run("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", ps]);
+    setTimeout(() => app.quit(), 800);
+    return { ok: true };
   } catch (error) {
     return { ok: false, error: String(error?.message || error) };
   }

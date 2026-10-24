@@ -7,5 +7,6 @@ contextBridge.exposeInMainWorld("flink", {
   disconnect: () => ipcRenderer.invoke("disconnect"),
   status: () => ipcRenderer.invoke("status"),
   checkUpdate: () => ipcRenderer.invoke("check-update"),
+  installUpdate: (payload) => ipcRenderer.invoke("install-update", payload),
   openExternal: (url) => ipcRenderer.invoke("open-external", url),
 });

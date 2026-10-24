@@ -178,14 +178,43 @@ for (const button of document.querySelectorAll(".update-btn")) {
       }
       resultEl.textContent = "";
       const text = document.createTextNode(`发现新版本 v${result.latest}：`);
-      const link = document.createElement("a");
-      link.textContent = "打开 GitHub 下载";
-      link.href = "#";
-      link.addEventListener("click", (event) => {
-        event.preventDefault();
-        window.flink.openExternal(result.downloadUrl || result.url);
-      });
-      resultEl.append(text, link);
+      resultEl.append(text);
+      if (window.flink.platform === "win32") {
+        const installButton = document.createElement("button");
+        installButton.type = "button";
+        installButton.className = "ghost update-install";
+        installButton.textContent = "下载并安装";
+        installButton.addEventListener("click", async () => {
+          installButton.disabled = true;
+          resultEl.textContent = "正在下载并校验 SHA256…";
+          try {
+            const install = await window.flink.installUpdate({
+              downloadUrl: result.downloadUrl,
+              checksumsUrl: result.checksumsUrl,
+              assetName: result.assetName,
+            });
+            if (!install.ok) {
+              resultEl.textContent = install.error || "安装失败";
+              installButton.disabled = false;
+              return;
+            }
+            resultEl.textContent = "下载完成，正在安装，App 即将退出…";
+          } catch (error) {
+            resultEl.textContent = String(error);
+            installButton.disabled = false;
+          }
+        });
+        resultEl.append(installButton);
+      } else {
+        const link = document.createElement("a");
+        link.textContent = "打开 GitHub 下载";
+        link.href = "#";
+        link.addEventListener("click", (event) => {
+          event.preventDefault();
+          window.flink.openExternal(result.downloadUrl || result.url);
+        });
+        resultEl.append(link);
+      }
     } catch (error) {
       resultEl.textContent = String(error);
     } finally {
