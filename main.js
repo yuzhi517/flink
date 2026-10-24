@@ -408,12 +408,12 @@ async function stopTun() {
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 960,
-    height: 680,
+    height: 720,
     minWidth: 760,
     minHeight: 560,
     title: "Flink",
     icon: path.join(__dirname, "resources", "icon.png"),
-    backgroundColor: "#0b1020",
+    backgroundColor: "#f8f6fc",
     show: false,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
