@@ -3,7 +3,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("flink", {
   platform: process.platform,
   unlock: (code) => ipcRenderer.invoke("unlock", code),
-  connect: (mode) => ipcRenderer.invoke("connect", mode),
+  connect: (mode, region) => ipcRenderer.invoke("connect", mode, region),
   disconnect: () => ipcRenderer.invoke("disconnect"),
   status: () => ipcRenderer.invoke("status"),
   checkUpdate: () => ipcRenderer.invoke("check-update"),
