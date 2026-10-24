@@ -3,5 +3,5 @@ dist/
 dist-win/
 android/
 *.log
-yulink-codes.txt
+flink-codes.txt
 codes.local.txt

@@ -1,6 +1,6 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
-contextBridge.exposeInMainWorld("yulink", {
+contextBridge.exposeInMainWorld("flink", {
   platform: process.platform,
   unlock: (code) => ipcRenderer.invoke("unlock", code),
   connect: (mode) => ipcRenderer.invoke("connect", mode),

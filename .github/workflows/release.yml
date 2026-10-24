@@ -1,4 +1,4 @@
-name: Build YuLink release
+name: Build Flink release
 
 on:
   push:
@@ -22,7 +22,7 @@ jobs:
         run: echo '{"repo":"${{ github.repository }}"}' > update-config.json
       - name: Package macOS
         run: |
-          npx electron-packager . YuLink --platform=darwin --arch=x64 --out=dist --overwrite --asar=false \
+          npx electron-packager . Flink --platform=darwin --arch=x64 --out=dist --overwrite --asar=false \
             --icon=resources/icon.icns \
             --ignore='^/node_modules($|/)' --ignore='^/dist($|/)' --ignore='^/dist-win($|/)' \
             --ignore='^/android($|/)' --ignore='^/scripts($|/)' \
@@ -30,11 +30,11 @@ jobs:
             --ignore='^/resources/singbox/wintun.dll$' \
             --ignore='^/resources/singbox/libcronet.dll$'
       - name: Zip macOS
-        run: ditto -c -k --sequesterRsrc --keepParent dist/YuLink-darwin-x64/YuLink.app dist/YuLink-macOS-unsigned.zip
+        run: ditto -c -k --sequesterRsrc --keepParent dist/Flink-darwin-x64/Flink.app dist/Flink-macOS-unsigned.zip
       - uses: actions/upload-artifact@v4
         with:
-          name: YuLink-macOS
-          path: dist/YuLink-macOS-unsigned.zip
+          name: Flink-macOS
+          path: dist/Flink-macOS-unsigned.zip
 
   windows:
     runs-on: windows-latest
@@ -50,18 +50,18 @@ jobs:
       - name: Package Windows
         shell: pwsh
         run: |
-          npx electron-packager . YuLink --platform=win32 --arch=x64 --out=dist --overwrite --asar=false `
+          npx electron-packager . Flink --platform=win32 --arch=x64 --out=dist --overwrite --asar=false `
             --icon=resources/icon.ico `
             --ignore='^/node_modules($|/)' --ignore='^/dist($|/)' --ignore='^/dist-win($|/)' `
             --ignore='^/android($|/)' --ignore='^/scripts($|/)' `
             --ignore='^/resources/singbox/sing-box$'
       - name: Zip Windows
         shell: pwsh
-        run: Compress-Archive -Path dist/YuLink-win32-x64/* -DestinationPath dist/YuLink-Windows-unsigned.zip -Force
+        run: Compress-Archive -Path dist/Flink-win32-x64/* -DestinationPath dist/Flink-Windows-unsigned.zip -Force
       - uses: actions/upload-artifact@v4
         with:
-          name: YuLink-Windows
-          path: dist/YuLink-Windows-unsigned.zip
+          name: Flink-Windows
+          path: dist/Flink-Windows-unsigned.zip
 
   release:
     needs: [macos, windows]
@@ -78,7 +78,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            artifacts/YuLink-macOS/YuLink-macOS-unsigned.zip
-            artifacts/YuLink-Windows/YuLink-Windows-unsigned.zip
+            artifacts/Flink-macOS/Flink-macOS-unsigned.zip
+            artifacts/Flink-Windows/Flink-Windows-unsigned.zip
             artifacts/checksums.txt
           generate_release_notes: true

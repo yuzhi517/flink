@@ -17,7 +17,7 @@ const modeNote = document.querySelector("#mode-note");
 let name = "";
 let busy = false;
 let mode = "proxy";
-const isMac = window.yulink.platform === "darwin";
+const isMac = window.flink.platform === "darwin";
 
 function showError(el, message) {
   el.textContent = message || "";
@@ -72,7 +72,7 @@ async function unlock() {
   unlockBtn.disabled = true;
   unlockBtn.textContent = "验证中…";
   try {
-    const result = await window.yulink.unlock(code);
+    const result = await window.flink.unlock(code);
     if (!result.ok) {
       showError(loginError, result.error || "家庭码不正确");
       return;
@@ -96,13 +96,13 @@ async function toggleConnection() {
   showError(homeError, "");
   setBusy(true, "正在连接…");
   try {
-    const status = await window.yulink.status();
+    const status = await window.flink.status();
     if (status.connected) {
-      const result = await window.yulink.disconnect();
+      const result = await window.flink.disconnect();
       if (!result.ok) throw new Error(result.error || "断开失败");
       setConnected(false);
     } else {
-      const result = await window.yulink.connect(mode);
+      const result = await window.flink.connect(mode);
       if (!result.ok) throw new Error(result.error || "连接失败");
       setConnected(true);
     }
@@ -135,7 +135,7 @@ for (const button of modeButtons) {
 logoutBtn.addEventListener("click", async () => {
   if (busy) return;
   try {
-    await window.yulink.disconnect();
+    await window.flink.disconnect();
   } catch (_) {}
   name = "";
   homeView.hidden = true;
@@ -148,7 +148,7 @@ logoutBtn.addEventListener("click", async () => {
 });
 
 setMode("proxy");
-window.yulink.status().then((status) => {
+window.flink.status().then((status) => {
   if (status?.mode) setMode(status.mode);
   if (status?.connected) {
     // The renderer may reload while the core is still running.
@@ -167,7 +167,7 @@ for (const button of document.querySelectorAll(".update-btn")) {
     resultEl.hidden = false;
     resultEl.textContent = "正在检查更新…";
     try {
-      const result = await window.yulink.checkUpdate();
+      const result = await window.flink.checkUpdate();
       if (!result.ok) {
         resultEl.textContent = result.error || "检查更新失败";
         return;
@@ -183,7 +183,7 @@ for (const button of document.querySelectorAll(".update-btn")) {
       link.href = "#";
       link.addEventListener("click", (event) => {
         event.preventDefault();
-        window.yulink.openExternal(result.downloadUrl || result.url);
+        window.flink.openExternal(result.downloadUrl || result.url);
       });
       resultEl.append(text, link);
     } catch (error) {

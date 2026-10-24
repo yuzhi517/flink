@@ -278,7 +278,7 @@ function tunConfig(base) {
     {
       type: "tun",
       tag: "tun-in",
-      interface_name: process.platform === "win32" ? "YuLink" : undefined,
+      interface_name: process.platform === "win32" ? "Flink" : undefined,
       address: ["172.19.0.1/30", "fdfe:dcba:9876::1/126"],
       auto_route: true,
       strict_route: true,
@@ -398,7 +398,7 @@ function createWindow() {
     height: 680,
     minWidth: 760,
     minHeight: 560,
-    title: "YuLink",
+    title: "Flink",
     icon: path.join(__dirname, "resources", "icon.png"),
     backgroundColor: "#0b1020",
     show: false,
@@ -495,7 +495,7 @@ ipcMain.handle("check-update", async () => {
     const response = await fetch(`https://api.github.com/repos/${repo}/releases/latest`, {
       headers: {
         Accept: "application/vnd.github+json",
-        "User-Agent": "YuLink-Updater",
+        "User-Agent": "Flink-Updater",
       },
     });
     if (!response.ok) {
