@@ -10,6 +10,9 @@
   --accent-strong: #5b21b6;
   --accent-soft: #a78bfa;
   --accent-wash: rgba(109, 40, 217, 0.08);
+  --gold: #f3c64f;
+  --gold-strong: #eab308;
+  --gold-wash: rgba(243, 198, 79, 0.16);
   --border: rgba(109, 40, 217, 0.12);
   --border-strong: rgba(109, 40, 217, 0.22);
   --ok: #15803d;
@@ -30,8 +33,9 @@ html, body {
   height: 100%;
   margin: 0;
   background:
-    radial-gradient(circle at 88% -8%, rgba(167, 139, 250, 0.26), transparent 34%),
-    radial-gradient(circle at -6% 102%, rgba(124, 58, 237, 0.1), transparent 36%),
+    radial-gradient(circle at 88% -8%, rgba(167, 139, 250, 0.24), transparent 34%),
+    radial-gradient(circle at 8% 102%, rgba(243, 198, 79, 0.16), transparent 30%),
+    radial-gradient(circle at -6% 102%, rgba(124, 58, 237, 0.07), transparent 34%),
     var(--bg);
   color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
@@ -89,8 +93,8 @@ body {
   position: absolute;
   inset: 0 0 auto 0;
   height: 4px;
-  background: linear-gradient(90deg, var(--accent-strong), var(--accent-soft) 70%, transparent);
-  opacity: 0.9;
+  background: linear-gradient(90deg, var(--accent-strong), var(--accent-soft) 55%, var(--gold) 100%);
+  opacity: 0.95;
 }
 
 .login-card {
@@ -188,17 +192,17 @@ h1 {
   margin-top: 18px;
   border: 0;
   border-radius: 15px;
-  background: linear-gradient(135deg, var(--accent-strong), var(--accent));
-  color: #ffffff;
+  background: linear-gradient(135deg, #f8d675, var(--gold));
+  color: #2b1b05;
   font-size: 15px;
   font-weight: 800;
   cursor: pointer;
-  box-shadow: 0 12px 26px rgba(109, 40, 217, 0.24);
+  box-shadow: 0 12px 26px rgba(202, 138, 4, 0.2);
   transition: transform 0.15s, filter 0.15s, box-shadow 0.2s;
 }
 .primary:hover {
-  filter: brightness(1.06);
-  box-shadow: 0 14px 30px rgba(109, 40, 217, 0.3);
+  filter: brightness(1.04);
+  box-shadow: 0 14px 30px rgba(202, 138, 4, 0.26);
 }
 .primary:active { transform: scale(0.99); }
 .primary:disabled {
@@ -345,10 +349,10 @@ h1 {
   background: var(--surface-soft);
 }
 .region-btn.active {
-  border-color: rgba(109, 40, 217, 0.38);
+  border-color: rgba(109, 40, 217, 0.34);
   color: var(--accent-strong);
-  background: var(--surface-purple);
-  box-shadow: inset 0 0 0 1px rgba(109, 40, 217, 0.08);
+  background: #ffffff;
+  box-shadow: inset 0 -3px 0 var(--gold), var(--shadow-soft);
 }
 
 .region-note,
@@ -367,7 +371,7 @@ h1 {
   margin-top: 12px;
   padding: 5px;
   border: 1px solid var(--border);
-  background: var(--surface-soft);
+  background: #fbf9ff;
   border-radius: 14px;
 }
 .mode-btn {
@@ -382,9 +386,9 @@ h1 {
   transition: color 0.2s, background 0.2s, box-shadow 0.2s;
 }
 .mode-btn.active {
-  color: #ffffff;
-  background: linear-gradient(135deg, var(--accent-strong), var(--accent));
-  box-shadow: 0 8px 18px rgba(109, 40, 217, 0.2);
+  color: var(--accent-strong);
+  background: #ffffff;
+  box-shadow: inset 0 0 0 1px rgba(109, 40, 217, 0.16), inset 0 -2px 0 var(--gold), 0 3px 10px rgba(76, 29, 149, 0.06);
 }
 .mode-btn:disabled {
   opacity: 0.35;
