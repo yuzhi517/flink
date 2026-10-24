@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'" />
+    <title>FamilyLink</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="orb orb-a"></div>
+    <div class="orb orb-b"></div>
+
+    <main class="shell">
+      <section id="login-view" class="card login-card">
+        <div class="brand">
+          <div class="mark">F</div>
+          <div>
+            <div class="brand-name">FamilyLink</div>
+            <div class="brand-sub">家庭专用网络</div>
+          </div>
+        </div>
+
+        <h1>输入家庭码</h1>
+        <p class="lede">每个家人一个独立家庭码。首次输入后即可连接，不需要注册账号。</p>
+
+        <label class="field-label" for="code">家庭码</label>
+        <input id="code" class="code-input" type="text" autocomplete="off" spellcheck="false" placeholder="FL-XXXX-XXXX" />
+        <div id="login-error" class="error" hidden></div>
+
+        <button id="unlock-btn" class="primary" type="button">解锁并继续</button>
+        <div class="fineprint">仅限家庭内部使用 · 不收集浏览记录</div>
+        <button class="ghost update-btn" type="button">检查更新</button>
+        <div class="update-result" hidden></div>
+      </section>
+
+      <section id="home-view" class="card home-card" hidden>
+        <header class="topbar">
+          <div class="brand small">
+            <div class="mark">F</div>
+            <div>
+              <div class="brand-name">FamilyLink</div>
+              <div id="profile-name" class="brand-sub">家庭网络</div>
+            </div>
+          </div>
+          <button id="logout-btn" class="ghost" type="button">切换家庭码</button>
+        </header>
+
+        <div class="hero">
+          <div id="status-dot" class="status-dot"></div>
+          <div>
+            <div id="status-title" class="status-title">未连接</div>
+            <div id="status-sub" class="status-sub">新加坡 · 自动选择 IPv6 / IPv4</div>
+          </div>
+        </div>
+
+        <div class="server-card">
+          <div class="server-row">
+            <span>出口地区</span>
+            <strong>新加坡</strong>
+          </div>
+          <div class="server-row">
+            <span>线路策略</span>
+            <strong>IPv6 优先，失败自动回退 IPv4</strong>
+          </div>
+          <div class="server-row">
+            <span>接管方式</span>
+            <strong id="mode-label">系统代理</strong>
+          </div>
+        </div>
+
+        <div class="mode-switch" role="group" aria-label="连接模式">
+          <button class="mode-btn active" data-mode="proxy" type="button">系统代理</button>
+          <button class="mode-btn" data-mode="tun" type="button">全局 TUN</button>
+        </div>
+        <div class="mode-note" id="mode-note">系统代理不需要管理员权限，浏览器和 AI 应用可用。</div>
+
+        <button id="connect-btn" class="primary big" type="button">连接</button>
+        <div id="home-error" class="error" hidden></div>
+        <div class="fineprint">连接后请用浏览器打开 ipinfo.io 确认出口为新加坡</div>
+        <button class="ghost update-btn" type="button">检查更新</button>
+        <div class="update-result" hidden></div>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>

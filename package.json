@@ -1,0 +1,20 @@
+{
+  "name": "familylink",
+  "productName": "FamilyLink",
+  "version": "0.1.0",
+  "description": "FamilyLink — private family VPN client",
+  "main": "main.js",
+  "type": "commonjs",
+  "author": "FamilyLink",
+  "license": "GPL-3.0-only",
+  "scripts": {
+    "start": "electron .",
+    "profiles": "node scripts/build-profiles.js",
+    "package:mac": "electron-packager . FamilyLink --platform=darwin --arch=x64 --out=dist --overwrite --asar=false --icon=resources/icon.icns --ignore='^/node_modules($|/)' --ignore='^/dist($|/)' --ignore='^/dist-win($|/)' --ignore='^/android($|/)' --ignore='^/scripts($|/)' --ignore='^/resources/singbox/sing-box.exe$' --ignore='^/resources/singbox/wintun.dll$' --ignore='^/resources/singbox/libcronet.dll$'",
+    "package:win": "electron-packager . FamilyLink --platform=win32 --arch=x64 --out=dist --overwrite --asar=false --icon=resources/icon.ico --ignore='^/node_modules($|/)' --ignore='^/dist($|/)' --ignore='^/dist-win($|/)' --ignore='^/android($|/)' --ignore='^/scripts($|/)' --ignore='^/resources/singbox/sing-box$'"
+  },
+  "devDependencies": {
+    "@electron/packager": "^20.3.0",
+    "electron": "^45.0.0"
+  }
+}

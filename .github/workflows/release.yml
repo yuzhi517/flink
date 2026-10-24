@@ -1,0 +1,84 @@
+name: Build FamilyLink release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - name: Configure update source
+        run: echo '{"repo":"${{ github.repository }}"}' > update-config.json
+      - name: Package macOS
+        run: |
+          npx electron-packager . FamilyLink --platform=darwin --arch=x64 --out=dist --overwrite --asar=false \
+            --icon=resources/icon.icns \
+            --ignore='^/node_modules($|/)' --ignore='^/dist($|/)' --ignore='^/dist-win($|/)' \
+            --ignore='^/android($|/)' --ignore='^/scripts($|/)' \
+            --ignore='^/resources/singbox/sing-box.exe$' \
+            --ignore='^/resources/singbox/wintun.dll$' \
+            --ignore='^/resources/singbox/libcronet.dll$'
+      - name: Zip macOS
+        run: ditto -c -k --sequesterRsrc --keepParent dist/FamilyLink-darwin-x64/FamilyLink.app dist/FamilyLink-macOS-unsigned.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FamilyLink-macOS
+          path: dist/FamilyLink-macOS-unsigned.zip
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - name: Configure update source
+        shell: pwsh
+        run: 'Set-Content -Path update-config.json -Value (''{"repo":"${{ github.repository }}"}'') -Encoding utf8'
+      - name: Package Windows
+        shell: pwsh
+        run: |
+          npx electron-packager . FamilyLink --platform=win32 --arch=x64 --out=dist --overwrite --asar=false `
+            --icon=resources/icon.ico `
+            --ignore='^/node_modules($|/)' --ignore='^/dist($|/)' --ignore='^/dist-win($|/)' `
+            --ignore='^/android($|/)' --ignore='^/scripts($|/)' `
+            --ignore='^/resources/singbox/sing-box$'
+      - name: Zip Windows
+        shell: pwsh
+        run: Compress-Archive -Path dist/FamilyLink-win32-x64/* -DestinationPath dist/FamilyLink-Windows-unsigned.zip -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FamilyLink-Windows
+          path: dist/FamilyLink-Windows-unsigned.zip
+
+  release:
+    needs: [macos, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Generate checksums
+        run: |
+          cd artifacts
+          find . -name '*.zip' -print0 | sort -z | xargs -0 sha256sum > checksums.txt
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/FamilyLink-macOS/FamilyLink-macOS-unsigned.zip
+            artifacts/FamilyLink-Windows/FamilyLink-Windows-unsigned.zip
+            artifacts/checksums.txt
+          generate_release_notes: true
