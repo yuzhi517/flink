@@ -608,6 +608,15 @@ ipcMain.handle("install-update", async (_event, payload) => {
       throw new Error("更新包中找不到 Flink.exe");
     }
 
+    // The update is downloaded and verified while the VPN is still connected.
+    // Disconnect only now, so the updater can replace the app without leaving a
+    // stale system proxy or TUN route behind.
+    if (tunMode) {
+      await stopTun();
+    } else {
+      await stop();
+    }
+
     const appDir = path.dirname(process.execPath);
     const scriptPath = path.join(tempRoot, "install-update.ps1");
     const script = [

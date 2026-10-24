@@ -260,7 +260,7 @@ for (const button of document.querySelectorAll(".update-btn")) {
               installButton.disabled = false;
               return;
             }
-            resultEl.textContent = "下载完成，正在安装，App 即将退出…";
+            resultEl.textContent = "下载完成，正在断开 VPN 并安装，App 即将退出…";
           } catch (error) {
             resultEl.textContent = String(error);
             installButton.disabled = false;
