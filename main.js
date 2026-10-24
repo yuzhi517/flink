@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell, net: electronNet } = require("electron");
+const { app, BrowserWindow, ipcMain, shell, net: electronNet, safeStorage } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs");
 const crypto = require("node:crypto");
@@ -54,6 +54,36 @@ function tryUnlock(code) {
     }
   }
   return { ok: false, error: "家庭码不正确" };
+}
+
+function sessionPath() {
+  return path.join(app.getPath("userData"), "session.bin");
+}
+
+function saveSession(code) {
+  try {
+    if (!safeStorage.isEncryptionAvailable()) return;
+    const encrypted = safeStorage.encryptString(String(code).trim().toUpperCase());
+    fs.writeFileSync(sessionPath(), encrypted.toString("base64"), { mode: 0o600 });
+  } catch (_) {}
+}
+
+function loadSession() {
+  try {
+    const file = sessionPath();
+    if (!fs.existsSync(file)) return "";
+    if (!safeStorage.isEncryptionAvailable()) return "";
+    const encrypted = Buffer.from(fs.readFileSync(file, "utf8"), "base64");
+    return safeStorage.decryptString(encrypted);
+  } catch (_) {
+    return "";
+  }
+}
+
+function clearSession() {
+  try {
+    fs.rmSync(sessionPath(), { force: true });
+  } catch (_) {}
 }
 
 function isPortOpen(port, timeout = 500) {
@@ -434,9 +464,17 @@ ipcMain.handle("unlock", async (_event, code) => {
   if (result.ok) {
     activeConfig = result.config;
     activeProfileName = result.name;
+    saveSession(code);
     return { ok: true, name: result.name };
   }
   return { ok: false, error: result.error };
+});
+
+ipcMain.handle("forget-session", async () => {
+  clearSession();
+  activeConfig = null;
+  activeProfileName = null;
+  return { ok: true };
 });
 
 ipcMain.handle("connect", async (_event, mode = "proxy", region = "sg") => {
@@ -475,7 +513,13 @@ ipcMain.handle("status", async () => {
     (core && !core.killed && (await isPortOpen(PORT))) ||
       (tunMode && (process.platform === "win32" || (tunPid && pidAlive(tunPid)))),
   );
-  return { connected, name: activeProfileName, mode: tunMode ? "tun" : "proxy", region: activeRegion };
+  return {
+    connected,
+    unlocked: Boolean(activeConfig),
+    name: activeProfileName,
+    mode: tunMode ? "tun" : "proxy",
+    region: activeRegion,
+  };
 });
 
 function versionParts(value) {
@@ -543,15 +587,65 @@ ipcMain.handle("check-update", async () => {
   }
 });
 
-async function downloadToFile(url, destination) {
+function sendUpdateProgress(payload) {
+  try {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("update-progress", payload);
+    }
+  } catch (_) {}
+}
+
+async function downloadToFile(url, destination, onProgress) {
   const response = await electronNet.fetch(url, {
     headers: { "User-Agent": "Flink-Updater" },
     redirect: "follow",
   });
   if (!response.ok) throw new Error(`下载失败：HTTP ${response.status}`);
-  const buffer = Buffer.from(await response.arrayBuffer());
-  fs.writeFileSync(destination, buffer);
-  return buffer;
+
+  const total = Number(response.headers.get("content-length")) || 0;
+  const reader = response.body?.getReader?.();
+  if (!reader) {
+    const buffer = Buffer.from(await response.arrayBuffer());
+    fs.writeFileSync(destination, buffer);
+    onProgress?.({ received: buffer.length, total: buffer.length, percent: 100 });
+    return buffer;
+  }
+
+  const file = fs.createWriteStream(destination, { mode: 0o600 });
+  let received = 0;
+  let lastSent = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = Buffer.from(value);
+      received += chunk.length;
+      if (!file.write(chunk)) {
+        await new Promise((resolve, reject) => {
+          file.once("drain", resolve);
+          file.once("error", reject);
+        });
+      }
+      const now = Date.now();
+      if (onProgress && (now - lastSent > 250 || (total && received >= total))) {
+        lastSent = now;
+        onProgress({
+          received,
+          total,
+          percent: total ? Math.min(100, Math.round((received / total) * 100)) : 0,
+        });
+      }
+    }
+    await new Promise((resolve, reject) => {
+      file.end(resolve);
+      file.once("error", reject);
+    });
+  } catch (error) {
+    file.destroy();
+    throw error;
+  }
+  onProgress?.({ received, total: total || received, percent: 100 });
+  return received;
 }
 
 async function verifyChecksum(checksumsUrl, assetName, filePath) {
@@ -585,7 +679,11 @@ ipcMain.handle("install-update", async (_event, payload) => {
     const extractDir = path.join(tempRoot, "extract");
     fs.mkdirSync(extractDir, { recursive: true });
 
-    await downloadToFile(downloadUrl, zipPath);
+    sendUpdateProgress({ stage: "download", received: 0, total: 0, percent: 0 });
+    await downloadToFile(downloadUrl, zipPath, (progress) =>
+      sendUpdateProgress({ stage: "download", ...progress }),
+    );
+    sendUpdateProgress({ stage: "verify", percent: 100 });
     await verifyChecksum(checksumsUrl, assetName, zipPath);
 
     await run("powershell.exe", [
@@ -608,6 +706,7 @@ ipcMain.handle("install-update", async (_event, payload) => {
       throw new Error("更新包中找不到 Flink.exe");
     }
 
+    sendUpdateProgress({ stage: "install" });
     // The update is downloaded and verified while the VPN is still connected.
     // Disconnect only now, so the updater can replace the app without leaving a
     // stale system proxy or TUN route behind.
@@ -679,6 +778,16 @@ ipcMain.handle("open-external", async (_event, url) => {
 });
 
 app.whenReady().then(() => {
+  const savedCode = loadSession();
+  if (savedCode) {
+    const restored = tryUnlock(savedCode);
+    if (restored.ok) {
+      activeConfig = restored.config;
+      activeProfileName = restored.name;
+    } else {
+      clearSession();
+    }
+  }
   if (process.platform === "darwin" && app.dock) {
     app.dock.setIcon(path.join(__dirname, "resources", "icon.png"));
   }

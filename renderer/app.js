@@ -246,6 +246,9 @@ logoutBtn.addEventListener("click", async () => {
   try {
     await window.flink.disconnect();
   } catch (_) {}
+  try {
+    await window.flink.forgetSession();
+  } catch (_) {}
   stopLatencyPolling();
   name = "";
   homeView.hidden = true;
@@ -263,11 +266,11 @@ setRegion("sg");
 window.flink.status().then((status) => {
   if (status?.mode) setMode(status.mode);
   if (status?.region) setRegion(status.region);
-  if (status?.connected) {
-    profileName.textContent = status.name || "家庭网络";
+  if (status?.name) {
+    profileName.textContent = status.name;
     loginView.hidden = true;
     homeView.hidden = false;
-    setConnected(true);
+    setConnected(Boolean(status.connected));
   }
 });
 
@@ -298,7 +301,20 @@ for (const button of document.querySelectorAll(".update-btn")) {
         installButton.textContent = "下载并安装";
         installButton.addEventListener("click", async () => {
           installButton.disabled = true;
-          resultEl.textContent = "正在下载并校验 SHA256…";
+          resultEl.textContent = "准备下载更新…";
+          const unsubscribe = window.flink.onUpdateProgress((progress) => {
+            if (progress.stage === "download") {
+              if (progress.percent) {
+                resultEl.textContent = `正在下载更新… ${progress.percent}%`;
+              } else if (progress.received) {
+                resultEl.textContent = `正在下载更新… ${(progress.received / 1048576).toFixed(1)} MB`;
+              }
+            } else if (progress.stage === "verify") {
+              resultEl.textContent = "正在校验 SHA256…";
+            } else if (progress.stage === "install") {
+              resultEl.textContent = "正在断开 VPN 并安装，App 即将退出…";
+            }
+          });
           try {
             const install = await window.flink.installUpdate({
               downloadUrl: result.downloadUrl,
@@ -314,6 +330,8 @@ for (const button of document.querySelectorAll(".update-btn")) {
           } catch (error) {
             resultEl.textContent = String(error);
             installButton.disabled = false;
+          } finally {
+            unsubscribe?.();
           }
         });
         resultEl.append(installButton);
