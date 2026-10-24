@@ -652,6 +652,28 @@ ipcMain.handle("install-update", async (_event, payload) => {
   }
 });
 
+ipcMain.handle("latency", async () => {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 6000);
+    const started = Date.now();
+    try {
+      const response = await electronNet.fetch(
+        `https://www.gstatic.com/generate_204?flink=${Date.now()}`,
+        { cache: "no-store", signal: controller.signal },
+      );
+      if (!response.ok && response.status !== 204) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      return { ok: true, ms: Date.now() - started };
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch (error) {
+    return { ok: false, error: String(error?.message || error) };
+  }
+});
+
 ipcMain.handle("open-external", async (_event, url) => {
   if (typeof url === "string" && /^https?:\/\//.test(url)) await shell.openExternal(url);
 });

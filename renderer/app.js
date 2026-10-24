@@ -11,16 +11,18 @@ const statusTitle = document.querySelector("#status-title");
 const statusSub = document.querySelector("#status-sub");
 const profileName = document.querySelector("#profile-name");
 const modeButtons = [...document.querySelectorAll(".mode-btn")];
-const modeLabel = document.querySelector("#mode-label");
 const modeNote = document.querySelector("#mode-note");
 const regionButtons = [...document.querySelectorAll(".region-btn")];
-const regionLabel = document.querySelector("#region-label");
 const regionNote = document.querySelector("#region-note");
+const latencyPill = document.querySelector("#latency-pill");
+const latencyValue = document.querySelector("#latency-value");
 
 let name = "";
 let busy = false;
 let mode = "proxy";
 let region = "sg";
+let latencyTimer = null;
+let latencyInFlight = false;
 const isMac = window.flink.platform === "darwin";
 
 function showError(el, message) {
@@ -53,31 +55,68 @@ function setMode(next) {
     button.classList.toggle("active", active);
     button.setAttribute("aria-pressed", String(active));
   }
-  modeLabel.textContent = mode === "tun" ? "全局 TUN" : "系统代理";
   if (isMac) {
-    modeNote.textContent = "macOS 版暂不启用 TUN；系统代理已可覆盖浏览器和 AI 应用。";
+    modeNote.textContent = "macOS 暂不启用 TUN，系统代理可覆盖浏览器和 AI 应用";
   } else {
     modeNote.textContent =
       mode === "tun"
-        ? "全局 TUN 会接管所有应用，连接时需要管理员授权。"
-        : "系统代理不需要管理员权限；TUN 可接管不遵守系统代理的应用。";
+        ? "全局 TUN 接管所有应用，连接时需管理员授权"
+        : "系统代理不需要管理员权限，适合大多数应用";
   }
   syncControlState();
 }
 
 function setRegion(next) {
   region = next === "us" ? "us" : "sg";
-  const label = region === "us" ? "美国" : "新加坡";
   for (const button of regionButtons) {
     const active = button.dataset.region === region;
     button.classList.toggle("active", active);
     button.setAttribute("aria-pressed", String(active));
   }
-  regionLabel.textContent = label;
   regionNote.textContent =
     region === "us"
-      ? "美国出口适合美区服务；延迟通常高于新加坡。"
-      : "新加坡适合 AI 与加密货币信息；IPv6 优先，失败自动回退 IPv4。";
+      ? "美国出口适合美区服务，延迟通常更高"
+      : "新加坡适合 AI 与加密货币信息";
+}
+
+function stopLatencyPolling() {
+  if (latencyTimer) {
+    clearInterval(latencyTimer);
+    latencyTimer = null;
+  }
+  latencyPill.hidden = true;
+  latencyValue.textContent = "--";
+  latencyValue.className = "latency-value";
+}
+
+async function refreshLatency() {
+  if (latencyInFlight) return;
+  latencyInFlight = true;
+  try {
+    const result = await window.flink.latency();
+    if (!result.ok) {
+      latencyValue.textContent = "超时";
+      latencyValue.className = "latency-value bad";
+      return;
+    }
+    const ms = Number(result.ms);
+    latencyValue.textContent = `${ms} ms`;
+    latencyValue.className =
+      ms < 250 ? "latency-value good" : ms < 500 ? "latency-value warn" : "latency-value bad";
+  } catch (_) {
+    latencyValue.textContent = "超时";
+    latencyValue.className = "latency-value bad";
+  } finally {
+    latencyInFlight = false;
+  }
+}
+
+function startLatencyPolling() {
+  stopLatencyPolling();
+  latencyPill.hidden = false;
+  latencyValue.textContent = "--";
+  refreshLatency();
+  latencyTimer = setInterval(refreshLatency, 5000);
 }
 
 function setConnected(connected) {
@@ -88,6 +127,8 @@ function setConnected(connected) {
     ? `${label} · ${mode === "tun" ? "全局 TUN 已接管" : "系统代理已接管"}`
     : `${label} · 自动选择 IPv6 / IPv4`;
   connectBtn.textContent = connected ? "断开连接" : "连接";
+  if (connected) startLatencyPolling();
+  else stopLatencyPolling();
 }
 
 async function unlock() {
@@ -126,6 +167,7 @@ async function toggleConnection() {
   try {
     const status = await window.flink.status();
     if (status.connected) {
+      stopLatencyPolling();
       const result = await window.flink.disconnect();
       if (!result.ok) throw new Error(result.error || "断开失败");
       setConnected(false);
@@ -148,46 +190,54 @@ async function toggleConnection() {
   }
 }
 
+async function applySettingChange(label) {
+  if (busy) return;
+  const status = await window.flink.status();
+  if (!status.connected) {
+    setConnected(false);
+    return;
+  }
+  stopLatencyPolling();
+  setBusy(true, label);
+  try {
+    const disconnected = await window.flink.disconnect();
+    if (!disconnected.ok) throw new Error(disconnected.error || "切换失败");
+    const result = await window.flink.connect(mode, region);
+    if (!result.ok) throw new Error(result.error || "切换失败");
+    setConnected(true);
+  } catch (error) {
+    statusDot.className = "status-dot err";
+    statusTitle.textContent = "切换失败";
+    statusSub.textContent = "请重试或断开后重新连接";
+    showError(homeError, String(error.message || error));
+    setConnected(false);
+  } finally {
+    busy = false;
+    unlockBtn.disabled = false;
+    connectBtn.disabled = false;
+    syncControlState();
+  }
+}
+
 unlockBtn.addEventListener("click", unlock);
 codeInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter") unlock();
 });
 connectBtn.addEventListener("click", toggleConnection);
+
 for (const button of modeButtons) {
-  button.addEventListener("click", () => {
+  button.addEventListener("click", async () => {
     if (busy) return;
     setMode(button.dataset.mode);
-    setConnected(false);
+    await applySettingChange("正在切换接管方式…");
   });
 }
 
 for (const button of regionButtons) {
   button.addEventListener("click", async () => {
     if (busy) return;
-    const status = await window.flink.status();
-    const wasConnected = Boolean(status.connected);
     setRegion(button.dataset.region);
-    setConnected(false);
-    if (!wasConnected) return;
-
-    setBusy(true, "正在切换地区…");
-    try {
-      const disconnected = await window.flink.disconnect();
-      if (!disconnected.ok) throw new Error(disconnected.error || "切换失败");
-      const result = await window.flink.connect(mode, region);
-      if (!result.ok) throw new Error(result.error || "切换失败");
-      setConnected(true);
-    } catch (error) {
-      statusDot.className = "status-dot err";
-      statusTitle.textContent = "切换失败";
-      statusSub.textContent = "请重试或断开后重新连接";
-      showError(homeError, String(error.message || error));
-      setConnected(false);
-    } finally {
-      busy = false;
-      unlockBtn.disabled = false;
-      connectBtn.disabled = false;
-    }
+    await applySettingChange("正在切换地区…");
   });
 }
 
@@ -196,6 +246,7 @@ logoutBtn.addEventListener("click", async () => {
   try {
     await window.flink.disconnect();
   } catch (_) {}
+  stopLatencyPolling();
   name = "";
   homeView.hidden = true;
   loginView.hidden = false;
@@ -213,7 +264,6 @@ window.flink.status().then((status) => {
   if (status?.mode) setMode(status.mode);
   if (status?.region) setRegion(status.region);
   if (status?.connected) {
-    // The renderer may reload while the core is still running.
     profileName.textContent = status.name || "家庭网络";
     loginView.hidden = true;
     homeView.hidden = false;

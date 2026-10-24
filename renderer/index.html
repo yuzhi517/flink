@@ -47,43 +47,45 @@
         </header>
 
         <div class="hero">
-          <div id="status-dot" class="status-dot"></div>
-          <div>
-            <div id="status-title" class="status-title" aria-live="polite">未连接</div>
-            <div id="status-sub" class="status-sub" aria-live="polite">新加坡 · 自动选择 IPv6 / IPv4</div>
+          <div class="status-main">
+            <div id="status-dot" class="status-dot"></div>
+            <div>
+              <div id="status-title" class="status-title" aria-live="polite">未连接</div>
+              <div id="status-sub" class="status-sub" aria-live="polite">新加坡 · 自动选择 IPv6 / IPv4</div>
+            </div>
+          </div>
+          <div id="latency-pill" class="latency-pill" aria-live="polite" hidden>
+            <span class="latency-label">延迟</span>
+            <span id="latency-value" class="latency-value">--</span>
           </div>
         </div>
 
-        <div class="server-card">
-          <div class="server-row">
-            <span>出口地区</span>
-            <strong id="region-label">新加坡</strong>
+        <div class="control-group">
+          <div class="control-row">
+            <div class="control-meta">
+              <div class="control-label">出口地区</div>
+              <div id="region-note" class="control-help">新加坡适合 AI 与加密货币信息</div>
+            </div>
+            <div class="region-switch" role="group" aria-label="出口地区">
+              <button class="region-btn active" data-region="sg" type="button" aria-pressed="true">新加坡</button>
+              <button class="region-btn" data-region="us" type="button" aria-pressed="false">美国</button>
+            </div>
           </div>
-          <div class="server-row">
-            <span>线路策略</span>
-            <strong>IPv6 优先，失败自动回退 IPv4</strong>
-          </div>
-          <div class="server-row">
-            <span>接管方式</span>
-            <strong id="mode-label">系统代理</strong>
+          <div class="control-row">
+            <div class="control-meta">
+              <div class="control-label">接管方式</div>
+              <div id="mode-note" class="control-help">系统代理不需要管理员权限</div>
+            </div>
+            <div class="mode-switch" role="group" aria-label="连接模式">
+              <button class="mode-btn active" data-mode="proxy" type="button" aria-pressed="true">系统代理</button>
+              <button class="mode-btn" data-mode="tun" type="button" aria-pressed="false">全局 TUN</button>
+            </div>
           </div>
         </div>
-
-        <div class="region-switch" role="group" aria-label="出口地区">
-          <button class="region-btn active" data-region="sg" type="button" aria-pressed="true">新加坡</button>
-          <button class="region-btn" data-region="us" type="button" aria-pressed="false">美国</button>
-        </div>
-        <div class="region-note" id="region-note">新加坡适合 AI 与加密货币信息；美国适合美区服务。</div>
-
-        <div class="mode-switch" role="group" aria-label="连接模式">
-          <button class="mode-btn active" data-mode="proxy" type="button" aria-pressed="true">系统代理</button>
-          <button class="mode-btn" data-mode="tun" type="button" aria-pressed="false">全局 TUN</button>
-        </div>
-        <div class="mode-note" id="mode-note">系统代理不需要管理员权限，浏览器和 AI 应用可用。</div>
 
         <button id="connect-btn" class="primary big" type="button">连接</button>
         <div id="home-error" class="error" role="alert" hidden></div>
-        <div class="fineprint">连接后请用浏览器打开 ipinfo.io 确认出口为新加坡</div>
+        <div class="fineprint">连接后请用浏览器打开 ipinfo.io 确认出口地区</div>
         <button class="ghost update-btn" type="button">检查更新</button>
         <div class="update-result" hidden></div>
       </section>

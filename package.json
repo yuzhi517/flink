@@ -1,7 +1,7 @@
 {
   "name": "flink",
   "productName": "Flink",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Flink — private family VPN client",
   "main": "main.js",
   "type": "commonjs",
