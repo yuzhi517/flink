@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell } = require("electron");
+const { app, BrowserWindow, ipcMain, shell, net: electronNet } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs");
 const crypto = require("node:crypto");
@@ -506,7 +506,7 @@ ipcMain.handle("check-update", async () => {
     if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo) || repo.startsWith("YOUR_")) {
       return { ok: false, error: "更新源未配置：请先在 update-config.json 填入 GitHub 仓库" };
     }
-    const response = await fetch(`https://api.github.com/repos/${repo}/releases/latest`, {
+    const response = await electronNet.fetch(`https://api.github.com/repos/${repo}/releases/latest`, {
       headers: {
         Accept: "application/vnd.github+json",
         "User-Agent": "Flink-Updater",
@@ -536,12 +536,15 @@ ipcMain.handle("check-update", async () => {
       notes: String(release.body || "").slice(0, 1200),
     };
   } catch (error) {
-    return { ok: false, error: String(error?.message || error) };
+    return {
+      ok: false,
+      error: `无法连接 GitHub：${String(error?.message || error)}\n请先连接 VPN 后重试`,
+    };
   }
 });
 
 async function downloadToFile(url, destination) {
-  const response = await fetch(url, {
+  const response = await electronNet.fetch(url, {
     headers: { "User-Agent": "Flink-Updater" },
     redirect: "follow",
   });
@@ -553,7 +556,7 @@ async function downloadToFile(url, destination) {
 
 async function verifyChecksum(checksumsUrl, assetName, filePath) {
   if (!checksumsUrl) throw new Error("Release 没有 checksums.txt，拒绝自动安装");
-  const response = await fetch(checksumsUrl, {
+  const response = await electronNet.fetch(checksumsUrl, {
     headers: { "User-Agent": "Flink-Updater" },
     redirect: "follow",
   });
