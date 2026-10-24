@@ -4,7 +4,6 @@ const crypto = require("node:crypto");
 
 const ROOT = path.resolve(__dirname, "..");
 const PARENT = path.resolve(ROOT, "..");
-const AUTO_DIR = path.join(PARENT, "auto-sg");
 const PORT = 12345;
 
 function parseLink(uri, tag) {
@@ -33,14 +32,35 @@ function parseLink(uri, tag) {
   };
 }
 
-function buildConfig(v6, v4) {
-  const o6 = parseLink(v6, "SG-IPv6");
-  const o4 = parseLink(v4, "SG-IPv4");
+function buildConfig(sg6, sg4, sv6, sv4) {
+  const outbounds = [
+    parseLink(sg6, "SG-IPv6"),
+    parseLink(sg4, "SG-IPv4"),
+    parseLink(sv6, "US-IPv6"),
+    parseLink(sv4, "US-IPv4"),
+    {
+      type: "urltest",
+      tag: "sg-auto",
+      outbounds: ["SG-IPv6", "SG-IPv4"],
+      url: "https://www.gstatic.com/generate_204",
+      interval: "3m",
+      tolerance: 60,
+    },
+    {
+      type: "urltest",
+      tag: "us-auto",
+      outbounds: ["US-IPv6", "US-IPv4"],
+      url: "https://www.gstatic.com/generate_204",
+      interval: "3m",
+      tolerance: 60,
+    },
+    { type: "direct", tag: "direct" },
+  ];
   return {
     log: { level: "warn", timestamp: true },
     dns: {
       servers: [
-        { type: "https", tag: "dns-remote", server: "1.1.1.1", detour: "auto" },
+        { type: "https", tag: "dns-remote", server: "1.1.1.1", detour: "sg-auto" },
         { type: "udp", tag: "dns-direct", server: "223.5.5.5" },
       ],
       rules: [{ domain_suffix: [".cn"], server: "dns-direct" }],
@@ -54,26 +74,14 @@ function buildConfig(v6, v4) {
         listen_port: PORT,
       },
     ],
-    outbounds: [
-      o6,
-      o4,
-      {
-        type: "urltest",
-        tag: "auto",
-        outbounds: ["SG-IPv6", "SG-IPv4"],
-        url: "https://www.gstatic.com/generate_204",
-        interval: "3m",
-        tolerance: 60,
-      },
-      { type: "direct", tag: "direct" },
-    ],
+    outbounds,
     route: {
       rules: [
         { action: "sniff" },
         { protocol: "dns", action: "hijack-dns" },
         { ip_is_private: true, outbound: "direct" },
       ],
-      final: "auto",
+      final: "sg-auto",
       auto_detect_interface: true,
       default_domain_resolver: "dns-remote",
     },
@@ -101,20 +109,55 @@ function encrypt(code, value) {
   };
 }
 
+function linesWithLinks(file) {
+  return fs
+    .readFileSync(file, "utf8")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.includes("vless://"));
+}
+
+function readTagged(file, prefix) {
+  const map = new Map();
+  for (const line of linesWithLinks(file)) {
+    const index = line.indexOf("vless://");
+    const namePart = line.slice(0, index).replace(/^#\s*/, "").trim().replace(/:$/, "");
+    const tag = namePart || `${prefix}-${map.size + 1}`;
+    map.set(tag, line.slice(index));
+  }
+  return map;
+}
+
+const codesPath = path.join(PARENT, "flink-codes.txt");
+const existingCodes = new Map();
+if (fs.existsSync(codesPath)) {
+  for (const line of fs.readFileSync(codesPath, "utf8").split(/\r?\n/)) {
+    const [name, code] = line.split("\t");
+    if (name && code) existingCodes.set(name.trim(), code.trim());
+  }
+}
+
+const sg6Map = readTagged(path.join(PARENT, "vpn-users-sg-ipv6.txt"), "SG6");
+const sg4Map = readTagged(path.join(PARENT, "vpn-users.txt"), "SG");
+const sv6Map = readTagged(path.join(PARENT, "vpn-users-sv-ipv6.txt"), "SV6");
+const sv4Map = readTagged(path.join(PARENT, "vpn-users-sv.txt"), "SV");
+
 const profiles = {};
 const codes = [];
 for (let i = 1; i <= 5; i += 1) {
-  const file = path.join(AUTO_DIR, `SG-Auto-${i}.txt`);
-  const lines = fs.readFileSync(file, "utf8").split(/\r?\n/).filter((line) => line.trim().startsWith("vless://"));
-  if (lines.length < 2) throw new Error(`Expected 2 links in ${file}`);
-  const config = buildConfig(lines[0], lines[1]);
-  const code = makeCode();
   const name = `家人 ${i}`;
+  const code = existingCodes.get(name) || makeCode();
+  const config = buildConfig(
+    sg6Map.get(`SG6-${i}`),
+    sg4Map.get(`SG-${i}`),
+    sv6Map.get(`SV6-${i}`),
+    sv4Map.get(`SV-${i}`),
+  );
   profiles[`family${i}`] = { name, ...encrypt(code, config) };
   codes.push(`${name}\t${code}`);
 }
 
 fs.writeFileSync(path.join(ROOT, "profiles.json"), JSON.stringify(profiles, null, 2));
-fs.writeFileSync(path.join(ROOT, "..", "flink-codes.txt"), `${codes.join("\n")}\n`, { mode: 0o600 });
-console.log(`Wrote ${Object.keys(profiles).length} encrypted profiles.`);
+fs.writeFileSync(codesPath, `${codes.join("\n")}\n`, { mode: 0o600 });
+console.log(`Wrote ${Object.keys(profiles).length} encrypted profiles with SG + US.`);
 console.log(codes.map((line) => line.split("\t")[0]).join(", "));

@@ -17,6 +17,7 @@ let activeProfileName = null;
 let proxyBackup = null;
 let coreLogTail = [];
 let tunMode = false;
+let activeRegion = "sg";
 let quitting = false;
 
 function run(command, args, options = {}) {
@@ -198,7 +199,19 @@ function stopCore() {
   core = null;
 }
 
-async function startCore() {
+function selectedConfig(region = activeRegion) {
+  const config = structuredClone(activeConfig);
+  const group = region === "us" ? "us-auto" : "sg-auto";
+  if (config.route) config.route.final = group;
+  if (Array.isArray(config.dns?.servers)) {
+    for (const server of config.dns.servers) {
+      if (server.tag === "dns-remote") server.detour = group;
+    }
+  }
+  return config;
+}
+
+async function startCore(region = activeRegion) {
   if (!activeConfig) throw new Error("请先输入家庭码");
   if (core && !core.killed) return;
   if (!fs.existsSync(coreBinary())) throw new Error(`缺少 sing-box 核心：${coreBinary()}`);
@@ -206,7 +219,7 @@ async function startCore() {
   const runtimeDir = app.getPath("userData");
   fs.mkdirSync(runtimeDir, { recursive: true });
   const configPath = path.join(runtimeDir, "sing-box.json");
-  fs.writeFileSync(configPath, JSON.stringify(activeConfig, null, 2), { mode: 0o600 });
+  fs.writeFileSync(configPath, JSON.stringify(selectedConfig(region), null, 2), { mode: 0o600 });
 
   coreLogTail = [];
   core = spawn(coreBinary(), ["run", "-c", configPath], {
@@ -272,8 +285,8 @@ function pidAlive(pid) {
   }
 }
 
-function tunConfig(base) {
-  const config = structuredClone(base);
+function tunConfig(base, region = activeRegion) {
+  const config = selectedConfig(region);
   config.inbounds = [
     {
       type: "tun",
@@ -326,7 +339,7 @@ async function startWindowsTun(runtimeDir, configPath, logPath) {
   tunMode = true;
 }
 
-async function startTun() {
+async function startTun(region = activeRegion) {
   if (!activeConfig) throw new Error("请先输入家庭码");
   if (process.platform !== "darwin" && process.platform !== "win32") {
     throw new Error("TUN 目前仅支持 macOS / Windows");
@@ -339,7 +352,7 @@ async function startTun() {
   const configPath = path.join(runtimeDir, "sing-box-tun.json");
   const pidPath = path.join(runtimeDir, "sing-box-tun.pid");
   const logPath = path.join(runtimeDir, "sing-box-tun.log");
-  fs.writeFileSync(configPath, JSON.stringify(tunConfig(activeConfig), null, 2), { mode: 0o600 });
+  fs.writeFileSync(configPath, JSON.stringify(tunConfig(activeConfig, region), null, 2), { mode: 0o600 });
   fs.rmSync(pidPath, { force: true });
 
   if (process.platform === "win32") {
@@ -426,16 +439,17 @@ ipcMain.handle("unlock", async (_event, code) => {
   return { ok: false, error: result.error };
 });
 
-ipcMain.handle("connect", async (_event, mode = "proxy") => {
+ipcMain.handle("connect", async (_event, mode = "proxy", region = "sg") => {
   try {
+    activeRegion = region === "us" ? "us" : "sg";
     if (mode === "tun") {
       if (core && !core.killed) await stop();
-      await startTun();
+      await startTun(activeRegion);
     } else {
       if (tunMode) await stopTun();
-      await startCore();
+      await startCore(activeRegion);
     }
-    return { ok: true, name: activeProfileName, mode };
+    return { ok: true, name: activeProfileName, mode, region: activeRegion };
   } catch (error) {
     return { ok: false, error: String(error?.message || error) };
   }
@@ -461,7 +475,7 @@ ipcMain.handle("status", async () => {
     (core && !core.killed && (await isPortOpen(PORT))) ||
       (tunMode && (process.platform === "win32" || (tunPid && pidAlive(tunPid)))),
   );
-  return { connected, name: activeProfileName, mode: tunMode ? "tun" : "proxy" };
+  return { connected, name: activeProfileName, mode: tunMode ? "tun" : "proxy", region: activeRegion };
 });
 
 function versionParts(value) {

@@ -13,10 +13,14 @@ const profileName = document.querySelector("#profile-name");
 const modeButtons = [...document.querySelectorAll(".mode-btn")];
 const modeLabel = document.querySelector("#mode-label");
 const modeNote = document.querySelector("#mode-note");
+const regionButtons = [...document.querySelectorAll(".region-btn")];
+const regionLabel = document.querySelector("#region-label");
+const regionNote = document.querySelector("#region-note");
 
 let name = "";
 let busy = false;
 let mode = "proxy";
+let region = "sg";
 const isMac = window.flink.platform === "darwin";
 
 function showError(el, message) {
@@ -24,10 +28,18 @@ function showError(el, message) {
   el.hidden = !message;
 }
 
+function syncControlState() {
+  for (const button of modeButtons) {
+    button.disabled = busy || (isMac && button.dataset.mode === "tun");
+  }
+  for (const button of regionButtons) button.disabled = busy;
+}
+
 function setBusy(value, label) {
   busy = value;
   unlockBtn.disabled = value;
   connectBtn.disabled = value;
+  syncControlState();
   if (value) {
     statusDot.className = "status-dot busy";
     statusTitle.textContent = label || "处理中…";
@@ -37,7 +49,9 @@ function setBusy(value, label) {
 function setMode(next) {
   mode = next === "tun" ? "tun" : "proxy";
   for (const button of modeButtons) {
-    button.classList.toggle("active", button.dataset.mode === mode);
+    const active = button.dataset.mode === mode;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
   }
   modeLabel.textContent = mode === "tun" ? "全局 TUN" : "系统代理";
   if (isMac) {
@@ -48,17 +62,31 @@ function setMode(next) {
         ? "全局 TUN 会接管所有应用，连接时需要管理员授权。"
         : "系统代理不需要管理员权限；TUN 可接管不遵守系统代理的应用。";
   }
-  for (const button of modeButtons) {
-    if (button.dataset.mode === "tun" && isMac) button.disabled = true;
+  syncControlState();
+}
+
+function setRegion(next) {
+  region = next === "us" ? "us" : "sg";
+  const label = region === "us" ? "美国" : "新加坡";
+  for (const button of regionButtons) {
+    const active = button.dataset.region === region;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
   }
+  regionLabel.textContent = label;
+  regionNote.textContent =
+    region === "us"
+      ? "美国出口适合美区服务；延迟通常高于新加坡。"
+      : "新加坡适合 AI 与加密货币信息；IPv6 优先，失败自动回退 IPv4。";
 }
 
 function setConnected(connected) {
+  const label = region === "us" ? "美国" : "新加坡";
   statusDot.className = `status-dot${connected ? " on" : ""}`;
   statusTitle.textContent = connected ? "已连接" : "未连接";
   statusSub.textContent = connected
-    ? `新加坡 · ${mode === "tun" ? "全局 TUN 已接管" : "系统代理已接管"}`
-    : "新加坡 · 自动选择 IPv6 / IPv4";
+    ? `${label} · ${mode === "tun" ? "全局 TUN 已接管" : "系统代理已接管"}`
+    : `${label} · 自动选择 IPv6 / IPv4`;
   connectBtn.textContent = connected ? "断开连接" : "连接";
 }
 
@@ -102,7 +130,7 @@ async function toggleConnection() {
       if (!result.ok) throw new Error(result.error || "断开失败");
       setConnected(false);
     } else {
-      const result = await window.flink.connect(mode);
+      const result = await window.flink.connect(mode, region);
       if (!result.ok) throw new Error(result.error || "连接失败");
       setConnected(true);
     }
@@ -116,6 +144,7 @@ async function toggleConnection() {
     busy = false;
     unlockBtn.disabled = false;
     connectBtn.disabled = false;
+    syncControlState();
   }
 }
 
@@ -132,6 +161,36 @@ for (const button of modeButtons) {
   });
 }
 
+for (const button of regionButtons) {
+  button.addEventListener("click", async () => {
+    if (busy) return;
+    const status = await window.flink.status();
+    const wasConnected = Boolean(status.connected);
+    setRegion(button.dataset.region);
+    setConnected(false);
+    if (!wasConnected) return;
+
+    setBusy(true, "正在切换地区…");
+    try {
+      const disconnected = await window.flink.disconnect();
+      if (!disconnected.ok) throw new Error(disconnected.error || "切换失败");
+      const result = await window.flink.connect(mode, region);
+      if (!result.ok) throw new Error(result.error || "切换失败");
+      setConnected(true);
+    } catch (error) {
+      statusDot.className = "status-dot err";
+      statusTitle.textContent = "切换失败";
+      statusSub.textContent = "请重试或断开后重新连接";
+      showError(homeError, String(error.message || error));
+      setConnected(false);
+    } finally {
+      busy = false;
+      unlockBtn.disabled = false;
+      connectBtn.disabled = false;
+    }
+  });
+}
+
 logoutBtn.addEventListener("click", async () => {
   if (busy) return;
   try {
@@ -143,13 +202,16 @@ logoutBtn.addEventListener("click", async () => {
   showError(loginError, "");
   showError(homeError, "");
   setMode("proxy");
+  setRegion("sg");
   setConnected(false);
   codeInput.focus();
 });
 
 setMode("proxy");
+setRegion("sg");
 window.flink.status().then((status) => {
   if (status?.mode) setMode(status.mode);
+  if (status?.region) setRegion(status.region);
   if (status?.connected) {
     // The renderer may reload while the core is still running.
     profileName.textContent = status.name || "家庭网络";

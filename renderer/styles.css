@@ -333,3 +333,55 @@ h1 {
   color: var(--accent);
   cursor: pointer;
 }
+
+.region-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 16px;
+}
+.region-btn {
+  height: 46px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 13px;
+  background: rgba(7, 11, 22, 0.4);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: border-color 0.2s, color 0.2s, background 0.2s;
+}
+.region-btn:hover {
+  border-color: rgba(103, 232, 249, 0.35);
+  color: var(--text);
+}
+.region-btn.active {
+  border-color: rgba(103, 232, 249, 0.55);
+  color: var(--text);
+  background: rgba(103, 232, 249, 0.09);
+}
+.region-note {
+  color: #667896;
+  font-size: 11px;
+  line-height: 1.5;
+  margin-top: 8px;
+  text-align: center;
+}
+
+button:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.mode-btn {
+  height: 44px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
