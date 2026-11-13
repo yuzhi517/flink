@@ -229,7 +229,7 @@ function stopCore() {
   core = null;
 }
 
-function selectedConfig(region = activeRegion) {
+function selectedConfig(region = activeRegion, ipv6Ok = null) {
   const config = structuredClone(activeConfig);
   const group = region === "us" ? "us-auto" : "sg-auto";
   if (config.route) config.route.final = group;
@@ -238,7 +238,67 @@ function selectedConfig(region = activeRegion) {
       if (server.tag === "dns-remote") server.detour = group;
     }
   }
+  for (const outbound of config.outbounds || []) {
+    if (outbound.type === "urltest") {
+      outbound.interval = "20s";
+    }
+  }
+  if (ipv6Ok === false) {
+    const selected = (config.outbounds || []).find((outbound) => outbound.tag === group);
+    if (selected) {
+      selected.outbounds = selected.outbounds.filter((tag) => !tag.endsWith("-IPv6"));
+    }
+  }
   return config;
+}
+
+const IPV6_PROBE_TIMEOUT = 1200;
+
+function probeTcp(host, port = 443, timeout = IPV6_PROBE_TIMEOUT) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const socket = net.connect({ host, port, family: 6 });
+    const finish = (ok) => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      resolve(ok);
+    };
+    socket.setTimeout(timeout);
+    socket.once("connect", () => finish(true));
+    socket.once("timeout", () => finish(false));
+    socket.once("error", () => finish(false));
+  });
+}
+
+async function ipv6Reachable(region, config = activeConfig) {
+  if (process.platform !== "win32") return null;
+  const tag = region === "us" ? "US-IPv6" : "SG-IPv6";
+  const outbound = (config?.outbounds || []).find((item) => item.tag === tag);
+  if (!outbound?.server) return null;
+  const results = await Promise.all([
+    probeTcp(outbound.server),
+    probeTcp(outbound.server),
+  ]);
+  return results.every(Boolean);
+}
+
+async function clearStaleWindowsProxy() {
+  if (process.platform !== "win32") return;
+  const key = "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings";
+  try {
+    const raw = await ps(
+      `$p='${key}'; $v=Get-ItemProperty -Path $p; Write-Output ($v.ProxyEnable|Out-String); Write-Output ($v.ProxyServer|Out-String)`,
+    );
+    const [enabled, server] = raw.split(/\r?\n/).map((line) => line.trim());
+    if (enabled !== "1") return;
+    if (server && !server.includes("127.0.0.1:12345")) return;
+    await ps(
+      `$p='${key}'; Set-ItemProperty -Path $p -Name ProxyEnable -Value 0; Set-ItemProperty -Path $p -Name ProxyServer -Value ''; Add-Type -Namespace WinInet -Name Native -MemberDefinition '[DllImport("wininet.dll")] public static extern bool InternetSetOption(IntPtr h, int o, IntPtr b, int l);'; [WinInet.Native]::InternetSetOption([IntPtr]::Zero, 39, [IntPtr]::Zero, 0) | Out-Null`,
+    );
+  } catch (_) {
+    // Best effort: a stale proxy is annoying, not fatal.
+  }
 }
 
 async function startCore(region = activeRegion) {
@@ -249,7 +309,11 @@ async function startCore(region = activeRegion) {
   const runtimeDir = app.getPath("userData");
   fs.mkdirSync(runtimeDir, { recursive: true });
   const configPath = path.join(runtimeDir, "sing-box.json");
-  fs.writeFileSync(configPath, JSON.stringify(selectedConfig(region), null, 2), { mode: 0o600 });
+  const ipv6Ok = await ipv6Reachable(region);
+  if (ipv6Ok === false) {
+    console.warn(`[flink] IPv6 probe failed for ${region}; using IPv4 only`);
+  }
+  fs.writeFileSync(configPath, JSON.stringify(selectedConfig(region, ipv6Ok), null, 2), { mode: 0o600 });
 
   coreLogTail = [];
   core = spawn(coreBinary(), ["run", "-c", configPath], {
@@ -315,8 +379,8 @@ function pidAlive(pid) {
   }
 }
 
-function tunConfig(base, region = activeRegion) {
-  const config = selectedConfig(region);
+function tunConfig(base, region = activeRegion, ipv6Ok = null) {
+  const config = selectedConfig(region, ipv6Ok);
   config.inbounds = [
     {
       type: "tun",
@@ -329,6 +393,19 @@ function tunConfig(base, region = activeRegion) {
       mtu: 9000,
     },
   ];
+  if (process.platform === "win32") {
+    config.route.rules = [
+      {
+        process_name: ["tailscaled.exe", "tailscale.exe", "tailscale-ipn.exe"],
+        outbound: "direct",
+      },
+      {
+        ip_cidr: ["100.64.0.0/10", "fd7a:115c:a1e0::/48"],
+        outbound: "direct",
+      },
+      ...(config.route.rules || []),
+    ];
+  }
   return config;
 }
 
@@ -382,7 +459,12 @@ async function startTun(region = activeRegion) {
   const configPath = path.join(runtimeDir, "sing-box-tun.json");
   const pidPath = path.join(runtimeDir, "sing-box-tun.pid");
   const logPath = path.join(runtimeDir, "sing-box-tun.log");
-  fs.writeFileSync(configPath, JSON.stringify(tunConfig(activeConfig, region), null, 2), { mode: 0o600 });
+  const ipv6Ok = await ipv6Reachable(region);
+  if (ipv6Ok === false) {
+    console.warn(`[flink] IPv6 probe failed for ${region}; using IPv4 only`);
+  }
+  await clearStaleWindowsProxy();
+  fs.writeFileSync(configPath, JSON.stringify(tunConfig(activeConfig, region, ipv6Ok), null, 2), { mode: 0o600 });
   fs.rmSync(pidPath, { force: true });
 
   if (process.platform === "win32") {
@@ -421,6 +503,7 @@ async function stopTun() {
       ]);
     } catch (_) {}
     tunMode = false;
+    await clearStaleWindowsProxy();
     return;
   }
   const pidPath = path.join(runtimeDir, "sing-box-tun.pid");
