@@ -60,6 +60,10 @@ function sessionPath() {
   return path.join(app.getPath("userData"), "session.bin");
 }
 
+function macProxyBackupPath() {
+  return path.join(app.getPath("userData"), "proxy-backup.json");
+}
+
 function saveSession(code) {
   try {
     if (!safeStorage.isEncryptionAvailable()) return;
@@ -153,35 +157,82 @@ async function readMacBypass(service) {
 }
 
 async function applyMacProxy(enable, backup) {
+  const backupPath = macProxyBackupPath();
   const service = backup?.service || (await detectMacService());
+  const cleanStale = (state) => {
+    if (state.enabled && state.server === "127.0.0.1" && String(state.port) === String(PORT)) {
+      return { enabled: false, server: "", port: "" };
+    }
+    return state;
+  };
   if (enable) {
-    const web = await readMacProxy(service, "-getwebproxy");
-    const secure = await readMacProxy(service, "-getsecurewebproxy");
-    const socks = await readMacProxy(service, "-getsocksfirewallproxy");
+    const web = cleanStale(await readMacProxy(service, "-getwebproxy"));
+    const secure = cleanStale(await readMacProxy(service, "-getsecurewebproxy"));
+    const socks = cleanStale(await readMacProxy(service, "-getsocksfirewallproxy"));
     const bypass = await readMacBypass(service);
     proxyBackup = { service, web, secure, socks, bypass };
+    try {
+      fs.writeFileSync(backupPath, JSON.stringify(proxyBackup), { mode: 0o600 });
+    } catch (_) {}
     await run("networksetup", ["-setwebproxy", service, "127.0.0.1", String(PORT)]);
     await run("networksetup", ["-setsecurewebproxy", service, "127.0.0.1", String(PORT)]);
     await run("networksetup", ["-setsocksfirewallproxy", service, "127.0.0.1", String(PORT)]);
     await run("networksetup", ["-setproxybypassdomains", service, "127.0.0.1", "localhost", "*.local"]);
     return;
   }
-  if (!backup) return;
+  let effective = backup || proxyBackup;
+  if (!effective) {
+    try {
+      effective = JSON.parse(fs.readFileSync(backupPath, "utf8"));
+    } catch (_) {
+      effective = null;
+    }
+  }
+  if (!effective) return;
   const restore = async (flag, state) => {
     if (state.enabled && state.server && state.port) {
-      await run("networksetup", [flag, backup.service, state.server, state.port]);
+      await run("networksetup", [flag, effective.service, state.server, state.port]);
     } else {
-      await run("networksetup", [flag, backup.service, "off"]);
+      await run("networksetup", [flag, effective.service, "off"]);
     }
   };
-  await restore("-setwebproxy", backup.web);
-  await restore("-setsecurewebproxy", backup.secure);
-  await restore("-setsocksfirewallproxy", backup.socks);
-  if (backup.bypass?.length) {
-    await run("networksetup", ["-setproxybypassdomains", backup.service, ...backup.bypass]);
+  await restore("-setwebproxy", effective.web);
+  await restore("-setsecurewebproxy", effective.secure);
+  await restore("-setsocksfirewallproxy", effective.socks);
+  if (effective.bypass?.length) {
+    await run("networksetup", ["-setproxybypassdomains", effective.service, ...effective.bypass]);
   } else {
-    await run("networksetup", ["-setproxybypassdomains", backup.service, "Empty"]);
+    await run("networksetup", ["-setproxybypassdomains", effective.service, "Empty"]);
   }
+  try {
+    fs.rmSync(backupPath, { force: true });
+  } catch (_) {}
+}
+
+async function startupRepairMacProxy() {
+  if (process.platform !== "darwin") return;
+  const backupPath = macProxyBackupPath();
+  if (fs.existsSync(backupPath)) {
+    try {
+      await applyMacProxy(false, null);
+    } catch (_) {}
+    return;
+  }
+  try {
+    const service = await detectMacService();
+    const states = await Promise.all([
+      readMacProxy(service, "-getwebproxy"),
+      readMacProxy(service, "-getsecurewebproxy"),
+      readMacProxy(service, "-getsocksfirewallproxy"),
+    ]);
+    const stale = states.some(
+      (state) => state.enabled && state.server === "127.0.0.1" && String(state.port) === String(PORT),
+    );
+    if (!stale) return;
+    await run("networksetup", ["-setwebproxystate", service, "off"]);
+    await run("networksetup", ["-setsecurewebproxystate", service, "off"]);
+    await run("networksetup", ["-setsocksfirewallproxystate", service, "off"]);
+  } catch (_) {}
 }
 
 async function ps(command) {
@@ -309,6 +360,9 @@ async function startCore(region = activeRegion) {
   const runtimeDir = app.getPath("userData");
   fs.mkdirSync(runtimeDir, { recursive: true });
   const configPath = path.join(runtimeDir, "sing-box.json");
+  if (process.platform === "win32" && fs.existsSync(path.join(runtimeDir, "sing-box-tun.active"))) {
+    await stopWindowsTun(runtimeDir);
+  }
   const ipv6Ok = await ipv6Reachable(region);
   if (ipv6Ok === false) {
     console.warn(`[flink] IPv6 probe failed for ${region}; using IPv4 only`);
@@ -332,6 +386,13 @@ async function startCore(region = activeRegion) {
       coreLogTail = [...coreLogTail, `core exited: ${code ?? signal}`].slice(-20);
     }
     core = null;
+    if (process.platform === "darwin" && proxyBackup) {
+      setSystemProxy(false)
+        .catch(() => {})
+        .finally(() => {
+          proxyBackup = null;
+        });
+    }
   });
 
   if (!(await waitForPort(PORT))) {
@@ -409,15 +470,65 @@ function tunConfig(base, region = activeRegion, ipv6Ok = null) {
   return config;
 }
 
+function psLiteral(value) {
+  return `'${String(value).replace(/'/g, "''")}'`;
+}
+
+async function windowsProcessRunning(name = "sing-box.exe") {
+  try {
+    const out = await run("tasklist.exe", ["/FI", `IMAGENAME eq ${name}`, "/NH"]);
+    return out.toLowerCase().includes(name.toLowerCase());
+  } catch (_) {
+    return false;
+  }
+}
+
+function readTunLog(logPath) {
+  return [logPath, `${logPath}.stdout`]
+    .filter((file) => fs.existsSync(file))
+    .map((file) => fs.readFileSync(file, "utf8"))
+    .join("\n");
+}
+
 async function startWindowsTun(runtimeDir, configPath, logPath) {
   if (!fs.existsSync(path.join(BIN_DIR, "wintun.dll"))) {
     throw new Error("缺少 wintun.dll");
   }
+  const core = coreBinary();
+  const stopFlag = path.join(runtimeDir, "sing-box-tun.stop");
+  const activeFlag = path.join(runtimeDir, "sing-box-tun.active");
+  const watchdogPath = path.join(runtimeDir, "start-tun-watchdog.ps1");
   const launcherPath = path.join(runtimeDir, "start-tun.cmd");
+  const stdoutLog = `${logPath}.stdout`;
+  fs.rmSync(stopFlag, { force: true });
+  fs.rmSync(activeFlag, { force: true });
+
+  const watchdog = [
+    "$ErrorActionPreference='SilentlyContinue'",
+    `$core=${psLiteral(core)}`,
+    `$config=${psLiteral(configPath)}`,
+    `$log=${psLiteral(logPath)}`,
+    `$stdout=${psLiteral(stdoutLog)}`,
+    `$stopFlag=${psLiteral(stopFlag)}`,
+    `$parentPid=${process.pid}`,
+    "if (Test-Path -LiteralPath $stopFlag) { Remove-Item -LiteralPath $stopFlag -Force; exit }",
+    "$coreDir=Split-Path -LiteralPath $core",
+    "Get-Process sing-box -ErrorAction SilentlyContinue | Where-Object { $_.Path -like (Join-Path $coreDir '*') } | Stop-Process -Force -ErrorAction SilentlyContinue",
+    "$p=Start-Process -FilePath $core -ArgumentList @('run','-c', ('\"' + $config + '\"')) -WorkingDirectory $coreDir -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $log",
+    "while (-not $p.HasExited) {",
+    "  if (Test-Path -LiteralPath $stopFlag) { break }",
+    "  if (-not (Get-Process -Id $parentPid -ErrorAction SilentlyContinue)) { break }",
+    "  Start-Sleep -Milliseconds 700",
+    "}",
+    "if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }",
+    "Remove-Item -LiteralPath $stopFlag -Force -ErrorAction SilentlyContinue",
+    "",
+  ].join("\r\n");
+  fs.writeFileSync(watchdogPath, watchdog, { mode: 0o600 });
+
   const launcher = [
     "@echo off",
-    `cd /d "${runtimeDir}"`,
-    `"${coreBinary()}" run -c "${configPath}" > "${logPath}" 2>&1`,
+    `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "${watchdogPath}"`,
     "",
   ].join("\r\n");
   fs.writeFileSync(launcherPath, launcher, { mode: 0o600 });
@@ -430,20 +541,52 @@ async function startWindowsTun(runtimeDir, configPath, logPath) {
   ]);
   await new Promise((resolve) => setTimeout(resolve, 3500));
 
-  let status = "";
+  if (!(await windowsProcessRunning())) {
+    throw new Error(`Windows TUN 启动失败\n${readTunLog(logPath).split("\n").slice(-20).join("\n")}`);
+  }
+  fs.writeFileSync(activeFlag, "active", { mode: 0o600 });
+  tunMode = true;
+}
+
+async function stopWindowsTun(runtimeDir) {
+  const stopFlag = path.join(runtimeDir, "sing-box-tun.stop");
   try {
-    status = await run("powershell.exe", [
+    fs.writeFileSync(stopFlag, "stop", { mode: 0o600 });
+  } catch (_) {}
+  for (let i = 0; i < 16; i += 1) {
+    if (!(await windowsProcessRunning())) {
+      fs.rmSync(stopFlag, { force: true });
+      fs.rmSync(path.join(runtimeDir, "sing-box-tun.active"), { force: true });
+      return true;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 350));
+  }
+  try {
+    await run("powershell.exe", [
       "-NoProfile",
       "-NonInteractive",
       "-Command",
-      `$p=Get-Process sing-box -ErrorAction SilentlyContinue; if ($p) { 'Up' } else { '' }`,
+      `Start-Process -FilePath 'taskkill.exe' -ArgumentList '/IM sing-box.exe /F' -Verb RunAs -WindowStyle Hidden`,
     ]);
   } catch (_) {}
-  if (!/Up/i.test(status)) {
-    const log = fs.existsSync(logPath) ? fs.readFileSync(logPath, "utf8") : "";
-    throw new Error(`Windows TUN 启动失败\n${log.split("\n").slice(-20).join("\n")}`);
+  for (let i = 0; i < 16; i += 1) {
+    if (!(await windowsProcessRunning())) {
+      fs.rmSync(stopFlag, { force: true });
+      fs.rmSync(path.join(runtimeDir, "sing-box-tun.active"), { force: true });
+      return true;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 350));
   }
-  tunMode = true;
+  return false;
+}
+
+async function cleanupStaleWindowsTun() {
+  if (process.platform !== "win32") return;
+  const runtimeDir = app.getPath("userData");
+  const activeFlag = path.join(runtimeDir, "sing-box-tun.active");
+  if (!fs.existsSync(activeFlag)) return;
+  await stopWindowsTun(runtimeDir);
+  await clearStaleWindowsProxy();
 }
 
 async function startTun(region = activeRegion) {
@@ -459,11 +602,14 @@ async function startTun(region = activeRegion) {
   const configPath = path.join(runtimeDir, "sing-box-tun.json");
   const pidPath = path.join(runtimeDir, "sing-box-tun.pid");
   const logPath = path.join(runtimeDir, "sing-box-tun.log");
+  if (process.platform === "win32" && fs.existsSync(path.join(runtimeDir, "sing-box-tun.active"))) {
+    await stopWindowsTun(runtimeDir);
+    await clearStaleWindowsProxy();
+  }
   const ipv6Ok = await ipv6Reachable(region);
   if (ipv6Ok === false) {
     console.warn(`[flink] IPv6 probe failed for ${region}; using IPv4 only`);
   }
-  await clearStaleWindowsProxy();
   fs.writeFileSync(configPath, JSON.stringify(tunConfig(activeConfig, region, ipv6Ok), null, 2), { mode: 0o600 });
   fs.rmSync(pidPath, { force: true });
 
@@ -494,16 +640,12 @@ async function startTun(region = activeRegion) {
 async function stopTun() {
   const runtimeDir = app.getPath("userData");
   if (process.platform === "win32") {
-    try {
-      await run("powershell.exe", [
-        "-NoProfile",
-        "-NonInteractive",
-        "-Command",
-        `Start-Process -FilePath 'taskkill.exe' -ArgumentList '/IM sing-box.exe /F' -Verb RunAs -WindowStyle Hidden`,
-      ]);
-    } catch (_) {}
-    tunMode = false;
+    const stopped = await stopWindowsTun(runtimeDir);
     await clearStaleWindowsProxy();
+    if (!stopped) {
+      throw new Error("TUN 仍在运行，请允许管理员权限后重试");
+    }
+    tunMode = false;
     return;
   }
   const pidPath = path.join(runtimeDir, "sing-box-tun.pid");
@@ -860,7 +1002,10 @@ ipcMain.handle("open-external", async (_event, url) => {
   if (typeof url === "string" && /^https?:\/\//.test(url)) await shell.openExternal(url);
 });
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  try { await cleanupStaleWindowsTun(); } catch (_) {}
+  try { await clearStaleWindowsProxy(); } catch (_) {}
+  try { await startupRepairMacProxy(); } catch (_) {}
   const savedCode = loadSession();
   if (savedCode) {
     const restored = tryUnlock(savedCode);
@@ -892,19 +1037,30 @@ app.on("before-quit", (event) => {
   stopCore();
   try {
     // Best-effort synchronous restore. The async path is used by the UI button.
-    if (process.platform === "darwin" && proxyBackup) {
-      const { service, web, secure, socks } = proxyBackup;
-      for (const [flag, state] of [
-        ["-setwebproxy", web],
-        ["-setsecurewebproxy", secure],
-        ["-setsocksfirewallproxy", socks],
-      ]) {
-        if (!state) continue;
-        if (state.enabled && state.server && state.port) {
-          require("node:child_process").execFileSync("networksetup", [flag, service, state.server, state.port]);
-        } else {
-          require("node:child_process").execFileSync("networksetup", [flag, service, "off"]);
+    if (process.platform === "darwin") {
+      let backup = proxyBackup;
+      if (!backup) {
+        try {
+          backup = JSON.parse(fs.readFileSync(macProxyBackupPath(), "utf8"));
+        } catch (_) {
+          backup = null;
         }
+      }
+      if (backup) {
+        const { service, web, secure, socks } = backup;
+        for (const [flag, state] of [
+          ["-setwebproxy", web],
+          ["-setsecurewebproxy", secure],
+          ["-setsocksfirewallproxy", socks],
+        ]) {
+          if (!state) continue;
+          if (state.enabled && state.server && state.port) {
+            require("node:child_process").execFileSync("networksetup", [flag, service, state.server, state.port]);
+          } else {
+            require("node:child_process").execFileSync("networksetup", [flag, service, "off"]);
+          }
+        }
+        fs.rmSync(macProxyBackupPath(), { force: true });
       }
     }
   } catch (_) {}
